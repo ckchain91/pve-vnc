@@ -1,0 +1,23 @@
+name: Test Node.js Express Install
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-node:
+    runs-on: [self-hosted, linux]  # 등록한 러너 라벨로 수정
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check Node.js version
+        run: node -v
+
+      - name: Check npm version
+        run: npm -v
+
+      - name: Install dependencies
+        run: npm install express https ws
+
+      - name: Test require
+        run: node -e "require('express'); require('https'); require('ws'); console.log('모듈 정상 설치 확인!')"
