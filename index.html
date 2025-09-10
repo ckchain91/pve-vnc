@@ -1,0 +1,345 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proxmox VNC 뷰어</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 20px;
+        }
+        .vm-selector {
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        select, button {
+            padding: 10px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+        .vnc-container {
+            position: relative;
+            background: #000;
+            height: 80vh;
+            width: 100%;
+            overflow: hidden;
+        }
+        .vnc-canvas {
+            border: none;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.connecting {
+            background: #f39c12;
+            color: white;
+        }
+        .status.connected {
+            background: #27ae60;
+            color: white;
+        }
+        .status.error {
+            background: #e74c3c;
+            color: white;
+        }
+        .loading {
+            color: #888;
+            font-size: 18px;
+        }
+        .controls {
+            padding: 10px 20px;
+            background: #ecf0f1;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .vm-info {
+            margin: 0 10px;
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Proxmox VNC 뷰어</h1>
+            <p>가상머신에 원격으로 연결하여 콘솔에 액세스할 수 있습니다.</p>
+        </div>
+        
+        <div class="vm-selector">
+            <select id="vmSelect">
+                <option value="">VM을 선택하세요...</option>
+            </select>
+            <button id="loadVmsBtn">VM 목록 새로고침</button>
+            <button id="connectBtn" disabled>VNC 연결</button>
+        </div>
+
+        <div class="controls">
+            <button id="disconnectBtn" disabled>연결 해제</button>
+            <button id="sendCtrlAltDelBtn" disabled>Ctrl+Alt+Del 전송</button>
+            <div class="vm-info" id="vmInfo"></div>
+        </div>
+
+        <div id="status"></div>
+
+        <div class="vnc-container" id="vncContainer">
+            <div class="loading">VM을 선택하고 연결 버튼을 클릭하세요</div>
+        </div>
+    </div>
+
+    <!-- noVNC 라이브러리: 모듈로 불러와 전역에 노출 -->
+    <script type="module">
+        import RFB from './core/rfb.js';
+        // 전역 사용을 위해 window에 바인딩
+        window.RFB = RFB;
+    </script>
+    <script>
+        class ProxmoxVNCViewer {
+            constructor() {
+                this.rfb = null;
+                this.vms = [];
+                this.currentVnc = null;
+                this.websocket = null;
+                
+                this.initElements();
+                this.bindEvents();
+                this.loadVMs();
+            }
+
+            initElements() {
+                this.vmSelect = document.getElementById('vmSelect');
+                this.loadVmsBtn = document.getElementById('loadVmsBtn');
+                this.connectBtn = document.getElementById('connectBtn');
+                this.disconnectBtn = document.getElementById('disconnectBtn');
+                this.sendCtrlAltDelBtn = document.getElementById('sendCtrlAltDelBtn');
+                this.vncContainer = document.getElementById('vncContainer');
+                this.status = document.getElementById('status');
+                this.vmInfo = document.getElementById('vmInfo');
+            }
+
+            bindEvents() {
+                this.vmSelect.addEventListener('change', () => {
+                    this.connectBtn.disabled = !this.vmSelect.value;
+                    this.updateVmInfo();
+                });
+
+                this.loadVmsBtn.addEventListener('click', () => this.loadVMs());
+                this.connectBtn.addEventListener('click', () => this.connectVNC());
+                this.disconnectBtn.addEventListener('click', () => this.disconnect());
+                this.sendCtrlAltDelBtn.addEventListener('click', () => this.sendCtrlAltDel());
+            }
+
+            showStatus(message, type = 'info') {
+                this.status.innerHTML = `<div class="status ${type}">${message}</div>`;
+            }
+
+            updateVmInfo() {
+                const selectedVm = this.vms.find(vm => vm.vmid == this.vmSelect.value);
+                if (selectedVm) {
+                    this.vmInfo.textContent = `${selectedVm.name} (${selectedVm.status}) - ${selectedVm.node}`;
+                } else {
+                    this.vmInfo.textContent = '';
+                }
+            }
+
+            async loadVMs() {
+                try {
+                    this.showStatus('VM 목록을 불러오는 중...', 'connecting');
+                    
+                    const response = await fetch('/api/vms');
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    this.vms = await response.json();
+                    this.populateVmSelect();
+                    this.showStatus('VM 목록을 성공적으로 불러왔습니다', 'connected');
+                    
+                    setTimeout(() => {
+                        this.status.innerHTML = '';
+                    }, 3000);
+                    
+                } catch (error) {
+                    console.error('VM 목록 로드 실패:', error);
+                    this.showStatus(`VM 목록 로드 실패: ${error.message}`, 'error');
+                }
+            }
+
+            populateVmSelect() {
+                this.vmSelect.innerHTML = '<option value="">VM을 선택하세요...</option>';
+                
+                this.vms.forEach(vm => {
+                    if (vm.type === 'qemu') {  // QEMU 가상머신만 표시
+                        const option = document.createElement('option');
+                        option.value = vm.vmid;
+                        option.textContent = `${vm.name} (${vm.vmid}) - ${vm.status}`;
+                        this.vmSelect.appendChild(option);
+                    }
+                });
+            }
+
+            async connectVNC() {
+                const vmid = this.vmSelect.value;
+                if (!vmid) return;
+
+                const selectedVm = this.vms.find(vm => vm.vmid == vmid);
+                if (!selectedVm) {
+                    this.showStatus('선택한 VM을 찾을 수 없습니다', 'error');
+                    return;
+                }
+
+                try {
+                    this.showStatus('VNC 연결 정보를 가져오는 중...', 'connecting');
+
+                    // VNC 프록시 정보 요청
+                    const response = await fetch(`/api/vnc/${selectedVm.node}/${vmid}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`VNC 프록시 생성 실패: ${response.status}`);
+                    }
+
+                    const vncInfo = await response.json();
+                    this.currentVnc = vncInfo;
+
+                    this.showStatus('VNC에 연결하는 중...', 'connecting');
+                    
+                    // WebSocket을 통한 VNC 연결
+                    this.connectWebSocket(vncInfo);
+
+                } catch (error) {
+                    console.error('VNC 연결 실패:', error);
+                    this.showStatus(`VNC 연결 실패: ${error.message}`, 'error');
+                }
+            }
+
+            connectWebSocket(vncInfo) {
+                // 기존 연결 종료
+                this.disconnect();
+
+                const wsProto = (location.protocol === 'https:') ? 'wss:' : 'ws:';
+                const wsUrl = `${wsProto}//${location.host}/vnc?node=${vncInfo.node}&vmid=${vncInfo.vmid}&ticket=${encodeURIComponent(vncInfo.ticket)}&port=${vncInfo.port}`;
+                
+                try {
+                    // 컨테이너 정리
+                    this.vncContainer.innerHTML = '';
+
+                    // RFB 연결 설정 (컨테이너 엘리먼트를 전달)
+                    this.rfb = new RFB(this.vncContainer, wsUrl, {
+                        credentials: { password: vncInfo.ticket }
+                    });
+
+                    // 뷰포트 스케일/세션 리사이즈 설정
+                    this.rfb.viewOnly = false;
+                    this.rfb.scaleViewport = true;
+                    this.rfb.resizeSession = true;
+                    this.rfb.clipViewport = false;
+
+                    // 이벤트 리스너 설정
+                    this.rfb.addEventListener('connect', () => {
+                        this.showStatus('VNC 연결 성공!', 'connected');
+                        this.connectBtn.disabled = true;
+                        this.disconnectBtn.disabled = false;
+                        this.sendCtrlAltDelBtn.disabled = false;
+                        
+                        setTimeout(() => {
+                            this.status.innerHTML = '';
+                        }, 3000);
+                    });
+
+                    this.rfb.addEventListener('disconnect', (e) => {
+                        this.showStatus(`VNC 연결이 해제되었습니다: ${e.detail?.clean ? '정상' : '비정상'}`, 'error');
+                        this.resetConnection();
+                    });
+
+                    this.rfb.addEventListener('securityfailure', (e) => {
+                        this.showStatus(`보안 오류: ${e.detail.reason}`, 'error');
+                        this.resetConnection();
+                    });
+
+                } catch (error) {
+                    console.error('WebSocket 연결 오류:', error);
+                    this.showStatus(`WebSocket 연결 오류: ${error.message}`, 'error');
+                }
+            }
+
+            disconnect() {
+                if (this.rfb) {
+                    this.rfb.disconnect();
+                }
+                this.resetConnection();
+            }
+
+            resetConnection() {
+                this.rfb = null;
+                this.currentVnc = null;
+                this.connectBtn.disabled = !this.vmSelect.value;
+                this.disconnectBtn.disabled = true;
+                this.sendCtrlAltDelBtn.disabled = true;
+                
+                this.vncContainer.innerHTML = '<div class="loading">연결이 해제되었습니다</div>';
+            }
+
+            sendCtrlAltDel() {
+                if (this.rfb) {
+                    this.rfb.sendCtrlAltDel();
+                    this.showStatus('Ctrl+Alt+Del 키가 전송되었습니다', 'connected');
+                    
+                    setTimeout(() => {
+                        this.status.innerHTML = '';
+                    }, 2000);
+                }
+            }
+        }
+
+        // 페이지 로드 시 초기화
+        document.addEventListener('DOMContentLoaded', () => {
+            window.vncViewer = new ProxmoxVNCViewer();
+        });
+    </script>
+</body>
+</html>
