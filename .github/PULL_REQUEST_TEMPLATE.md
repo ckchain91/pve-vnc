@@ -8,3 +8,4 @@
 ## 체크리스트
 - [ ] 문서/README 업데이트
 - [ ] 보안 스캔 경고 없음(Trivy High/Critical=0)
+- dev check
