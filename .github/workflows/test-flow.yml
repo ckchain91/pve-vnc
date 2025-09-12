@@ -1,7 +1,7 @@
 name: Test Node.js Express Install
 
-on:
-  workflow_dispatch:
+on: push
+  #workflow_dispatch:
 
 jobs:
   test-node:
