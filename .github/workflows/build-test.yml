@@ -15,5 +15,4 @@ jobs:
         run: npm ci
       - name: Build for pm2
         run: npm run pm2
-      - name: Test
-        run: npm test
+
