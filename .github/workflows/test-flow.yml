@@ -9,9 +9,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setting up node.js
-        run: actions/setup-node@v4
+        
+      - name: Setting Node.js
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
 
       - name: Check node & npm version
         run: node -v && npm -v
