@@ -3,8 +3,12 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start" : "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "pm2": "pm2 start index.js --name vnc-server",
+    "pm2:dev": "pm2 start index.js --name vnc-server --watch",
+    "pm2:stop": "pm2 stop vnc-server",
+    "pm2:logs": "pm2 logs vnc-server"
   },
   "author": "",
   "license": "ISC",
@@ -14,5 +18,8 @@
     "express": "^5.1.0",
     "https": "^1.0.0",
     "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "pm2": "^6.0.10"
   }
 }
