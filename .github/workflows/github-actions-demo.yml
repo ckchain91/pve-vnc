@@ -1,31 +1,9 @@
-name: Test Node.js Express Install
-
-on: push
-  #workflow_dispatch:
-
+name: GitHub Actions Demo
+run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
+on: [push]
 jobs:
-  test-node:
-    runs-on: [self-hosted, linux]  # 등록한 러너 라벨로 수정
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
-      - name: Setting Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Check node & npm version
-        run: node -v && npm -v
-
-      - name: Install dependencies
-        run: npm install express https ws
-
-      - name: Test require
-        run: node -e "require('express'); require('https'); require('ws'); console.log('모듈 정상 설치 확인!')"
-
   Explore-GitHub-Actions:
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     steps:
       - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
       - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by GitHub!"

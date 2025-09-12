@@ -1,0 +1,26 @@
+name: label-and-warn
+on: pull_request
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const head = pr.head.ref || '';
+            if (head.startsWith('feature/')) {
+              await github.rest.issues.addLabels({
+                ...context.repo, issue_number: pr.number, labels: ['target:dev']
+              });
+            }
+            if (pr.base.ref === 'main' && head.startsWith('feature/')) {
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: pr.number,
+                body: '⚠️ 이 PR은 기본적으로 `dev`를 대상으로 해야 합니다. 대상 브랜치를 `dev`로 변경해주세요.'
+              });
+            }
